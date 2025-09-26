@@ -1,0 +1,56 @@
+name: cicd-cloud-run-authenticator-service
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  cicd:
+    runs-on: ubuntu-latest
+    
+    # Authentication to the GCP
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: 'prj-cicd-solarad'
+          service_account: 'sa-org-terraform@prj-cicd-solarad.iam.gserviceaccount.com'
+          create_credentials_file: true
+          cleanup_credentials: true
+          id_token_include_email: true
+          credentials_json: ${{ secrets.GCP_CICD_AUTH }}
+
+      # Set environment variables including build ID and app name
+      - name: Set Environment Variables
+        id: vars
+        run: |
+          GIT_COMMIT_SHORT=$(git rev-parse --short HEAD)
+          echo "GIT_COMMIT_SHORT=${GIT_COMMIT_SHORT}" >> $GITHUB_ENV
+          echo "GIT_COMMIT_SHORT: ${GIT_COMMIT_SHORT}"
+          BUILD_ID=${{ github.run_number }}
+          echo "BUILD_ID=${BUILD_ID}" >> $GITHUB_ENV
+          ARTIFACT_REPO_NAME="asia-south2-docker.pkg.dev/prj-cicd-solarad/repo-solarad-cicd-as2-01"
+          APP_NAME="authenticator-service"
+          ENV="prod"
+          echo "ARTIFACT_REPO_NAME=${ARTIFACT_REPO_NAME}" >> $GITHUB_ENV
+          echo "APP_NAME=${APP_NAME}" >> $GITHUB_ENV
+          echo "ENV=${ENV}" >> $GITHUB_ENV
+      # Configure Docker to use gcloud
+      - name: Configure Docker to use gcloud as a credential helper
+        run: |
+          gcloud auth configure-docker asia-south2-docker.pkg.dev
+      # Build Docker image with prod tag and commit ID
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.ARTIFACT_REPO_NAME }}/${{ env.ENV }}/${{ env.APP_NAME }}:${{ env.ENV }}-${{ env.BUILD_ID }} \
+                       -t ${{ env.ARTIFACT_REPO_NAME }}/${{ env.ENV }}/${{ env.APP_NAME }}:${{ env.GIT_COMMIT_SHORT }} .
+      # List Docker images
+      - name: List Docker images
+        run: |
+          docker images
+      # Push Docker image to Artifact Registry with build ID and commit ID tags
+      - name: Push Docker image to Artifact Registry
+        run: |
+          docker push ${{ env.ARTIFACT_REPO_NAME }}/${{ env.ENV }}/${{ env.APP_NAME }}:${{ env.ENV }}-${{ env.BUILD_ID }}
+          docker push ${{ env.ARTIFACT_REPO_NAME }}/${{ env.ENV }}/${{ env.APP_NAME }}:${{ env.GIT_COMMIT_SHORT }}
