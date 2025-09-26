@@ -17,15 +17,20 @@ FIELDNAMES = ["ID", "User Email", "User Fname", "User Lname", "Company", "Passha
 
 def download_csv():
     """Download CSV from GCS into memory"""
-    logger.info("Downloading users CSV from GCS")
+    logger.info(f"Downloading users CSV from gs://{BUCKET_NAME}/{CSV_PATH}")
     bucket = storage_client.bucket(BUCKET_NAME)
     blob = bucket.blob(CSV_PATH)
-    if not blob.exists():
-        logger.warning("CSV does not exist yet")
-        return []
-    content = blob.download_as_text()
-    reader = csv.DictReader(io.StringIO(content))
-    return list(reader)
+    try:
+        if not blob.exists():
+            logger.warning("CSV does not exist in GCS")
+            return []
+        content = blob.download_as_text()
+        logger.info(f"Downloaded {len(content)} bytes from CSV")
+        reader = csv.DictReader(io.StringIO(content))
+        return list(reader)
+    except Exception as e:
+        logger.exception(f"Failed to download CSV: {e}")
+        raise
 
 
 def upload_csv(users, if_generation_match=None):
@@ -39,10 +44,14 @@ def upload_csv(users, if_generation_match=None):
     writer.writeheader()
     writer.writerows(users)
 
-    if if_generation_match is not None:
-        blob.upload_from_string(output.getvalue(), content_type="text/csv", if_generation_match=if_generation_match)
-    else:
-        blob.upload_from_string(output.getvalue(), content_type="text/csv")
+    try:
+        if if_generation_match is not None:
+            blob.upload_from_string(output.getvalue(), content_type="text/csv", if_generation_match=if_generation_match)
+        else:
+            blob.upload_from_string(output.getvalue(), content_type="text/csv")
+    except Exception as e:
+        logger.exception("Failed to upload CSV")
+        raise
 
 
 def find_user(email: str):
@@ -86,11 +95,7 @@ def add_user(email: str, fname: str, lname: str, company: str, password: str):
         "Created At": created_at
     })
 
-    try:
-        upload_csv(users, if_generation_match=gen)
-    except Exception:
-        logger.error("Concurrent write detected")
-        raise RuntimeError("Concurrent write detected, please retry")
+    upload_csv(users, if_generation_match=gen)
 
 
 def update_password(email: str, new_password: str):
@@ -113,8 +118,4 @@ def update_password(email: str, new_password: str):
     if not updated:
         raise ValueError("User not found")
 
-    try:
-        upload_csv(users, if_generation_match=gen)
-    except Exception:
-        logger.error("Concurrent write detected")
-        raise RuntimeError("Concurrent write detected, please retry")
+    upload_csv(users, if_generation_match=gen)

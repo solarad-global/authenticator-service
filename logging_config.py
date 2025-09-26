@@ -11,5 +11,5 @@ def setup_logging():
     handler.setFormatter(formatter)
 
     root = logging.getLogger()
-    root.setLevel(logging.INFO)   # Change to DEBUG for more detail
+    root.setLevel(logging.INFO)
     root.handlers = [handler]
